@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+# glossa.py - Greeklish Glossa (improved)
+# Features:
+#  - assignment:    x <- 5
+#  - print:         emfanise / ektipose "text"  or emfanise var
+#  - input:         diavase var
+#  - if:            an <cond> tote ... telos_an   (single-line or multi-line)
+#  - while:         oso <cond> epanalave ... telos_oso  (single-line or multi-line)
+#  - single-line bodies can contain multiple statements separated by ';' OR written
+#    without ';' (the interpreter will try to split into sensible statements).
+
+# You are going to need a python executer to run this script!
+
+
+import sys
+
+variables = {}
+
+# --- Expression evaluation ---
+def normalize_condition(expr: str) -> str:
+    # Replace <> with !=
+    expr = expr.replace("<>", "!=")
+    # Replace = with ==, but ignore <, >, <=, >=
+    expr = expr.replace("=", "==").replace("<==", "<=").replace(">==", ">=")
+    return expr
+
+def eval_expr(expr):
+    try:
+        expr = normalize_condition(expr)
+        return eval(expr, {}, variables)
+    except Exception:
+        return expr
+
+# --- Run a block of code (lines) ---
+def run_program(lines):
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if not line:
+            i += 1
+            continue
+
+        tokens = line.split()
+        cmd = tokens[0]
+
+        # --- Assignment ---
+        if "<-" in tokens:
+            varname = tokens[0]
+            expr = " ".join(tokens[2:])
+            variables[varname] = eval_expr(expr)
+
+        # --- Print ---
+        elif cmd in ("emfanise", "ektipose"):
+            arg = " ".join(tokens[1:]).strip()
+            if not arg:
+                print()
+            elif arg.startswith('"') and arg.endswith('"'):
+                print(arg[1:-1])
+            elif arg in variables:
+                print(variables[arg])
+            else:
+                print(eval_expr(arg))
+
+        # --- Input ---
+        elif cmd == "diavase":
+            if len(tokens) > 1:
+                varname = tokens[1]
+                value = input(f"{varname} = ")
+                try:
+                    value = int(value)
+                except ValueError:
+                    try:
+                        value = float(value)
+                    except ValueError:
+                        pass
+                variables[varname] = value
+            else:
+                print("Error: usage diavase <variable>")
+
+        # --- If / ElseIf / Else ---
+        elif cmd == "an":
+            chain = [tokens]  # first part
+            # Collect until telos_an
+            while "telos_an" not in tokens:
+                i += 1
+                tokens = lines[i].strip().split()
+                chain.append(tokens)
+
+            # Flatten into one list
+            words = []
+            for part in chain:
+                words.extend(part)
+
+            # Split into clauses
+            clauses = []
+            current = []
+            for word in words:
+                if word in ("an", "alios_an", "alios", "telos_an"):
+                    if current:
+                        clauses.append(current)
+                    current = [word]
+                else:
+                    current.append(word)
+            if current:
+                clauses.append(current)
+
+            executed = False
+            for clause in clauses:
+                head = clause[0]
+                if head == "alios":
+                    body = clause[1:]
+                    if not executed:
+                        run_program([" ".join(body)])
+                        executed = True
+                elif head in ("an", "alios_an"):
+                    if "tote" not in clause:
+                        raise RuntimeError("Syntax error: missing 'tote'")
+                    idx = clause.index("tote")
+                    condition = " ".join(clause[1:idx])
+                    body = clause[idx + 1:]
+                    if not executed and eval_expr(condition):
+                        run_program([" ".join(body)])
+                        executed = True
+
+        # --- While ---
+        elif cmd == "oso":
+            if "epanalave" not in tokens:
+                raise RuntimeError("Syntax error: use 'oso <cond> epanalave'")
+            idx = tokens.index("epanalave")
+            condition = " ".join(tokens[1:idx])
+            body = [" ".join(tokens[idx + 1:])]
+            # Collect until telos_oso
+            while "telos_oso" not in body[-1]:
+                i += 1
+                body.append(lines[i].strip())
+            body[-1] = body[-1].replace("telos_oso", "").strip()
+
+            while eval_expr(condition):
+                run_program(body)
+
+        # --- For loop ---
+        elif cmd == "gia":
+            if "apo" not in tokens or "mexri" not in tokens:
+                raise RuntimeError("Syntax error: use 'gia <var> apo <start> mexri <end> [me_vima <step>] ... telos_gia'")
+            varname = tokens[1]
+            idx_apo = tokens.index("apo")
+            idx_mexri = tokens.index("mexri")
+            start = eval_expr(" ".join(tokens[idx_apo + 1:idx_mexri]))
+            if "me_vima" in tokens:
+                idx_step = tokens.index("me_vima")
+                end = eval_expr(" ".join(tokens[idx_mexri + 1:idx_step]))
+                step = eval_expr(" ".join(tokens[idx_step + 1:]))
+            else:
+                end = eval_expr(" ".join(tokens[idx_mexri + 1:]))
+                step = 1
+
+            # Collect body until telos_gia
+            body = []
+            while True:
+                i += 1
+                if i >= len(lines):
+                    raise RuntimeError("Missing telos_gia")
+                if "telos_gia" in lines[i]:
+                    body.append(lines[i].replace("telos_gia", "").strip())
+                    break
+                body.append(lines[i].strip())
+
+            for val in range(int(start), int(end) + 1, int(step)):
+                variables[varname] = val
+                run_program(body)
+
+        else:
+            print(f"Δεν αναγνωρίζω την εντολή: {line}")
+
+        i += 1
+
+
+# --- Main loop ---
+def main():
+    if len(sys.argv) > 1:
+        with open(sys.argv[1], encoding="utf-8") as f:
+            run_program(f.readlines())
+    else:
+        print("Greeklish Glossa REPL (type 'exit' to quit). Made by BEIM")
+        buffer = []
+        while True:
+            line = input(">>> " if not buffer else "... ")
+            if line.strip().lower() == "exit":
+                break
+            buffer.append(line)
+            # Detect block end
+            if any(buffer[-1].strip().endswith(kw) for kw in ("telos_an", "telos_oso", "telos_gia")) or (len(buffer) == 1 and not line.startswith(("an", "oso", "gia"))):
+                run_program(buffer)
+                buffer = []
+
+
+if __name__ == "__main__":
+    main()
